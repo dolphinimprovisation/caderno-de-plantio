@@ -8,7 +8,7 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>Caderno de Orquídeas</title>
+<title>Caderno de Plantio</title>
 <style>
 :root{
   --bg:#F7F5F0; --card:#FFFFFF; --ink:#16200F; --ink2:#4A5546; --line:#DCD8CE;
@@ -236,7 +236,7 @@ textarea{min-height:104px;resize:vertical}
 
 <header>
   <button class="iconbtn hide" id="backBtn" aria-label="Voltar">&#8592;</button>
-  <h1 id="hdTitle">Caderno de Orquídeas<span class="sub" id="hdSub"></span></h1>
+  <h1 id="hdTitle">Caderno de Plantio<span class="sub" id="hdSub"></span></h1>
 </header>
 
 <main id="view"></main>
@@ -709,6 +709,15 @@ function chipGroup(options,val){
 function errBox(){ return el("div","err hide"); }
 function showErr(b,m){ b.textContent=m; b.classList.remove("hide"); b.scrollIntoView({block:"nearest"}); }
 function confirmDel(title,msg,fn){ const w=el("div"); w.appendChild(el("p",null,esc(msg))); openSheet(title,w,[btn("Cancelar","sec",()=>pre&&pre.aoCancelar?pre.aoCancelar():closeSheet()),btn("Excluir","dng",fn)]); }
+const NOME_PADRAO = "Caderno de Plantio";
+function nomeCaderno(){ return (S.config && S.config.nomeCaderno) ? S.config.nomeCaderno : NOME_PADRAO; }
+function aplicarNome(){
+  document.title = nomeCaderno();
+  const h = document.getElementById("hdTitle");
+  if(h && /Caderno de/.test(h.childNodes[0] ? h.childNodes[0].nodeValue || "" : ""))
+    h.childNodes[0].nodeValue = nomeCaderno();
+}
+
 async function saveCfg(patch){ S.config=Object.assign({id:"app"},S.config,patch); await put("config",S.config); }
 
 /* ============ fotos ============ */
@@ -900,7 +909,7 @@ function tocar(g, botao){
 
 
 /* ============ vocabulário do Rob ============ */
-const APP_VERSAO = "5 · área criada pela fala";
+const APP_VERSAO = "6 · Caderno de Plantio, nome editável";
 const VOCAB_VERSAO = 8;
 const VOCAB_AREAS = [];    /* copia limpa: o usuario cria as dele */
 const VOCAB_INSUMOS = [];  /* copia limpa: o usuario cria os dele */
@@ -3375,7 +3384,7 @@ function render(){
 
 /* ============ INÍCIO ============ */
 function screenHome(){
-  head("Caderno de Orquídeas", new Date().toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"}));
+  head(nomeCaderno(), new Date().toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"}));
   const v=$("#view");
   const gravando = !!sess;
   const st=statusGeral();
@@ -4404,6 +4413,21 @@ function screenRegras(){
 }
 
 /* ============ MAIS ============ */
+function formNomeCaderno(){
+  const eb=errBox(), w=el("div"); w.appendChild(eb);
+  const f=input("text", nomeCaderno(), NOME_PADRAO);
+  w.appendChild(field("Nome do caderno", f, "Aparece no topo do app e na tela de Início. Só neste aparelho."));
+  openSheet("Nome do caderno", w, [
+    btn("Cancelar","sec",closeSheet),
+    btn("Salvar","pri", async()=>{
+      const nv=(f.value||"").trim();
+      if(!nv) return showErr(eb,"Escreva um nome, ou deixe o padrão.");
+      await saveCfg({nomeCaderno: nv});
+      document.title = nv;
+      closeSheet(); render(); toast("Nome trocado");
+    })]);
+}
+
 function screenMais(){
   head("Mais","");
   const v=$("#view");
@@ -4422,6 +4446,7 @@ function screenMais(){
   c.appendChild(item("&#128214;","Guia de manejo","mudas", screenGuia));
   c.appendChild(item("&#128220;","Planos de trabalho",[...new Set(S.mudas.map(x=>x.especie))].length+"",screenPlanos));
   c.appendChild(item("&#128202;","Resumo","", ()=>abrirResumo(null, 30)));
+  c.appendChild(item("&#9998;","Nome do caderno", nomeCaderno(), formNomeCaderno));
   v.appendChild(c);
 
   const c2=el("div","card"); c2.style.marginTop="18px";
