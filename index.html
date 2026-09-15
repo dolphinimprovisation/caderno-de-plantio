@@ -900,7 +900,7 @@ function tocar(g, botao){
 
 
 /* ============ vocabulário do Rob ============ */
-const APP_VERSAO = "4 · Caderno de Orquídeas";
+const APP_VERSAO = "5 · área criada pela fala";
 const VOCAB_VERSAO = 8;
 const VOCAB_AREAS = [];    /* copia limpa: o usuario cria as dele */
 const VOCAB_INSUMOS = [];  /* copia limpa: o usuario cria os dele */
@@ -1496,6 +1496,20 @@ async function instalarAcoes(){
 }
 
 /* aprende uma palavra nova como sinônimo, ou cria o verbo se ele não existir */
+/* Cria uma área a partir da palavra que a pessoa falou, sem formulário.
+   Mesmo id canônico do instalador, pra sincronia não duplicar. */
+async function criarAreaDaFala(palavra){
+  const nm = capitalizar(normalizarFala(palavra));
+  if(!nm) return null;
+  const ja = S.areas.find(a => semAcento(a.nome) === semAcento(nm));
+  if(ja) return ja;
+  const o = {id: idCanonico("area", nm), nome: nm, tipo: "Outro", frequencia: null,
+             cultura: "", apelidos: [normalizarFala(palavra)], obs: "",
+             criadoEm: new Date().toISOString()};
+  await put("areas", o); S.areas.push(o);
+  return o;
+}
+
 async function ensinarVerbo(palavra, tipo){
   const p = normalizarFala(palavra); if(!p) return null;
   let alvo = listaAcoes().find(a => a.tipo === tipo && S.acoes.some(x => x.id === a.id));
@@ -3189,6 +3203,46 @@ function telaConfirmar(texto, drafts, g, previasFixas){
         linha1.appendChild(ch);
       });
       lista.appendChild(c);
+    }
+  }
+
+  /* Nenhuma área reconhecida? Cria na hora a partir da própria fala, em vez de
+     mandar a pessoa pro formulário de cadastro. */
+  if(drafts.length && !drafts.some(d => d.areaId)){
+    const usadosA = [];
+    drafts.forEach(d => {
+      const a = d.acaoId ? listaAcoes().find(x => x.id === d.acaoId) : null;
+      const i = d.insumoId ? insumoById(d.insumoId) : null;
+      const m = d.mudaId ? mudaById(d.mudaId) : null;
+      if(a){ usadosA.push(normalizarFala(palavraDaAcao(a)));
+             usadosA.push.apply(usadosA, (a.ouvidos || [])); }
+      if(i) usadosA.push.apply(usadosA, termosDoInsumo(i).join(" ").split(" "));
+      if(m) usadosA.push(normalizarFala(m.especie));
+    });
+    const candsA = [...new Set(falaNorm.split(" "))].filter(t =>
+      t.length >= 4 && !/^\d/.test(t) && !PALAVRA_BOBA.test(t) &&
+      !usadosA.some(u => u && parecido(t, u) >= 0.7)).slice(0, 8);
+
+    if(candsA.length){
+      const ca = el("div","card"); ca.style.cssText = "margin-bottom:12px;border-left:5px solid var(--amber)";
+      const bda = el("div"); bda.style.padding = "14px 16px";
+      bda.appendChild(el("div","t1", S.areas.length ? "Não reconheci o lugar" : "Onde foi isso?"));
+      bda.appendChild(el("div","t2","Toque na palavra que diz o lugar. Eu crio a área e passo a entender daqui pra frente."));
+      ca.appendChild(bda);
+      const la = el("div","chips"); la.style.padding = "0 14px 14px";
+      candsA.forEach(w => {
+        const ch = el("button","chip", esc(w));
+        ch.onclick = async () => {
+          const nova = await criarAreaDaFala(w);
+          if(!nova) return;
+          toast("Área “" + nova.nome + "” criada.");
+          closeSheet();
+          telaConfirmar(texto, interpretar(texto), g);
+        };
+        la.appendChild(ch);
+      });
+      ca.appendChild(la);
+      lista.appendChild(ca);
     }
   }
 
