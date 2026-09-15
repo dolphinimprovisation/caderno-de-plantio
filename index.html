@@ -909,7 +909,7 @@ function tocar(g, botao){
 
 
 /* ============ vocabulário do Rob ============ */
-const APP_VERSAO = "6 · Caderno de Plantio, nome editável";
+const APP_VERSAO = "8 · corta a frase na vírgula";
 const VOCAB_VERSAO = 8;
 const VOCAB_AREAS = [];    /* copia limpa: o usuario cria as dele */
 const VOCAB_INSUMOS = [];  /* copia limpa: o usuario cria os dele */
@@ -1485,7 +1485,11 @@ async function garantirMal(nome){
   return o;
 }
 
-const listaAcoes = () => (S.acoes && S.acoes.length) ? S.acoes : VOCAB_ACOES;
+/* a lista de fábrica também precisa de identificador: sem ele o app entende
+   a frase mas acha que não entendeu, e pede pra ensinar à toa. */
+const listaAcoes = () => (S.acoes && S.acoes.length) ? S.acoes :
+  VOCAB_ACOES.map(v => ({id: idAcao(v.p), palavra: v.p, tipo: v.tipo,
+                         forma: v.forma || null, ouvidos: (v.ouvidos || []).slice()}));
 const palavraDaAcao = a => a.palavra || a.p;
 const termosDaAcao = a => [palavraDaAcao(a)].concat(a.ouvidos || []);
 const acharAcao = (txt, acoes) => acharNoTexto(txt, acoes || listaAcoes(), termosDaAcao, 0.74);
@@ -1684,7 +1688,14 @@ function interpretar(falaOriginal, ctx){
   const acoes   = ctx.acoes   || listaAcoes();
   const hoje    = ctx.hoje    || todayISO();
 
-  const base = normalizarFala(falaOriginal);
+  /* A vírgula some na normalização, e sem ela "irriguei a area 1, podei a
+     mangueira" virava um registro só. Vírgula e ponto e vírgula viram "e"
+     antes de normalizar — decimais ficam protegidos. */
+  const comCortes = String(falaOriginal)
+    .replace(/(\d)[.,](\d)/g, "$1\u0001$2")
+    .replace(/[,;]+/g, " e ")
+    .replace(/\u0001/g, ",");
+  const base = normalizarFala(comCortes);
   const frags = fragmentar(base);
   const drafts = [];
   let areaHerdada = null;
