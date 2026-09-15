@@ -297,7 +297,7 @@ function fmtNum(n){ return String(n).replace(".",","); }
 
 /* ============ banco ============ */
 const DB_NAME="caderno-orquideas";
-const STORES=["areas","insumos","plantios","mudas","acoes","males","problemas","planos","lembretes","registros","regras","gravacoes","pendentes","config"];
+const STORES=["areas","insumos","plantios","mudas","acoes","males","problemas","planos","lembretes","registros","regras","gravacoes","pendentes","guia","config"];
 /* A versão nasce da lista: acrescentou loja, subiu a versão sozinha. Já esqueci de
    subir na mão uma vez e quebrei o aparelho de quem já tinha dados — nunca mais. */
 const DB_VER = 10 + STORES.length;
@@ -345,13 +345,13 @@ function all(store){ return new Promise((ok,err)=>{ const r=tx(store,"readonly")
 function clearStore(store){ return new Promise((ok,err)=>{ const r=tx(store,"readwrite").clear(); r.onsuccess=()=>ok(); r.onerror=e=>err(e.target.error); }); }
 
 /* ============ estado ============ */
-const S = { areas:[], insumos:[], plantios:[], mudas:[], acoes:[], males:[], problemas:[], planos:[], lembretes:[], registros:[], regras:[], gravacoes:[], pendentes:[], config:{} };
+const S = { areas:[], insumos:[], plantios:[], mudas:[], acoes:[], males:[], problemas:[], planos:[], lembretes:[], registros:[], regras:[], gravacoes:[], pendentes:[], guia:[], config:{} };
 /* por nome, não por posição: acrescentar uma loja não pode embaralhar o estado */
 async function load(){
   const res = await Promise.all(STORES.map(all));
   const por = {}; STORES.forEach((s,i) => por[s] = res[i] || []);
   S.areas=por.areas; S.insumos=por.insumos; S.plantios=por.plantios; S.mudas=por.mudas; S.acoes=por.acoes; S.males=por.males; S.problemas=por.problemas; S.planos=por.planos; S.lembretes=por.lembretes;
-  S.registros=por.registros; S.regras=por.regras; S.gravacoes=por.gravacoes; S.pendentes=por.pendentes;
+  S.registros=por.registros; S.regras=por.regras; S.gravacoes=por.gravacoes; S.pendentes=por.pendentes; S.guia=por.guia;
   S.config = (por.config.find(x=>x.id==="app")||{id:"app"});
 }
 const areaById = id => S.areas.find(a=>a.id===id);
@@ -909,7 +909,7 @@ function tocar(g, botao){
 
 
 /* ============ vocabulário do Rob ============ */
-const APP_VERSAO = "8 · corta a frase na vírgula";
+const APP_VERSAO = "9 · guia editável";
 const VOCAB_VERSAO = 8;
 const VOCAB_AREAS = [];    /* copia limpa: o usuario cria as dele */
 const VOCAB_INSUMOS = [];  /* copia limpa: o usuario cria os dele */
@@ -2493,20 +2493,6 @@ const GUIA_ORQUIDEAS = [
    "Adubo leve e frequente na fase de crescimento."]
 ];
 
-function cartaoOrquidea(g){
-  const c = el("div","gcard");
-  const h = el("h4");
-  h.appendChild(document.createTextNode(g[0]));
-  h.appendChild(el("span","pq","rascunho"));
-  c.appendChild(h);
-  GUIA_ORQ_COLS.forEach((col,i) => {
-    const l = el("div","gl");
-    l.appendChild(el("b",null,col));
-    l.appendChild(el("span",null,g[i+2]));
-    c.appendChild(l);
-  });
-  return c;
-}
 
 const GUIA_LISTAS = [
   ["Regras para muda fraca", [
@@ -2541,36 +2527,149 @@ const GUIA_LISTAS = [
 ];
 
 let guiaBusca = "";
-function cartaoGuia(g){
+/* ---- fichas do guia, editáveis ----
+   A tabela de fábrica continua no código. O que o usuário escrever fica na loja
+   "guia" e SUBSTITUI a de fábrica (decisão do Rob: substitui de vez).
+   oculto:true esconde uma ficha de fábrica que a pessoa não cultiva. */
+let guiaVerOcultas = false;
+const idGuia = nome => "g-" + semAcento(String(nome||"")).replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"");
+
+function fichaDeFabrica(g, tabela){
+  return {id: idGuia(g[0]), nome: g[0], apelidos: (g[1]||[]).slice(),
+          cols: [g[2]||"", g[3]||"", g[4]||"", g[5]||"", g[6]||""],
+          nota: g[8] || "", pesquisa: g[7] === "p", tabela: tabela, fabrica: true};
+}
+const tabelaDeFabrica = tabela => tabela === "orquideas" ? GUIA_ORQUIDEAS : GUIA_MUDAS;
+const fichaSalva = id => S.guia.find(x => x.id === id);
+
+/* devolve a ficha que deve aparecer, ou null se a pessoa escondeu */
+function fichaEfetiva(g, tabela){
+  const base = fichaDeFabrica(g, tabela);
+  const sv = fichaSalva(base.id);
+  if(!sv) return base;
+  if(sv.oculto && !guiaVerOcultas) return null;
+  return {id: sv.id, nome: sv.nome, apelidos: (sv.apelidos||[]).slice(),
+          cols: (sv.cols||[]).slice(), nota: sv.nota||"", pesquisa: false,
+          tabela: tabela, fabrica: false, oculta: !!sv.oculto};
+}
+/* fichas que a pessoa criou e não existem de fábrica */
+function fichasProprias(tabela){
+  const fab = tabelaDeFabrica(tabela);
+  return S.guia.filter(x => x.tabela === tabela && !fab.some(g => idGuia(g[0]) === x.id))
+    .filter(x => !x.oculto || guiaVerOcultas)
+    .map(x => ({id:x.id, nome:x.nome, apelidos:(x.apelidos||[]).slice(), cols:(x.cols||[]).slice(),
+                nota:x.nota||"", pesquisa:false, tabela:tabela, fabrica:false, oculta:!!x.oculto, propria:true}))
+    .sort((a,b)=>a.nome.localeCompare(b.nome,"pt-BR"));
+}
+const combinaBusca = (f,q) => !q ||
+  normalizarFala([f.nome].concat(f.apelidos).join(" ")).includes(q) ||
+  normalizarFala(f.cols.join(" ")).includes(q);
+
+async function salvarFicha(obj){
+  await put("guia", obj);
+  const ix = S.guia.findIndex(x => x.id === obj.id);
+  if(ix >= 0) S.guia[ix] = obj; else S.guia.push(obj);
+}
+
+function cartaoFicha(f){
   const c = el("div","gcard");
   const h = el("h4");
-  h.appendChild(document.createTextNode(g[0]));
-  const quantas = S.mudas.filter(m => guiaDaEspecie(m.especie) === g).length;
-  if(quantas) h.appendChild(el("span","qt", quantas + (quantas === 1 ? " muda" : " mudas")));
-  if(g[7] === "p") h.appendChild(el("span","pq","pesquisa"));
-  c.appendChild(h);
-  if(g[8]){
-    const nota = el("div","gnota"); nota.textContent = "⚠ " + g[8];
-    c.appendChild(nota);
+  h.appendChild(document.createTextNode(f.nome));
+  if(f.tabela === "mudas"){
+    const quantas = S.mudas.filter(m => { const g = guiaDaEspecie(m.especie); return g && idGuia(g[0]) === f.id; }).length;
+    if(quantas) h.appendChild(el("span","qt", quantas + (quantas === 1 ? " muda" : " mudas")));
   }
-  GUIA_COLS.forEach((col, i) => {
-    const bruto = g[i + 2];
+  if(f.pesquisa) h.appendChild(el("span","pq","pesquisa"));
+  if(f.oculta)   h.appendChild(el("span","pq","escondida"));
+  const ed = el("button","linkbtn","editar");
+  ed.style.cssText = "float:right;font-size:13px";
+  ed.onclick = () => formFicha(f);
+  h.appendChild(ed);
+  c.appendChild(h);
+  if(f.nota){ const nota = el("div","gnota"); nota.textContent = "\u26A0 " + f.nota; c.appendChild(nota); }
+  const cols = f.tabela === "orquideas" ? GUIA_ORQ_COLS : GUIA_COLS;
+  cols.forEach((col, i) => {
+    const bruto = f.cols[i] || "";
     const l = el("div","gl");
     l.appendChild(el("b", null, col));
     const val = el("span");
-    if(i === 4){ val.textContent = bruto; }
-    else {
+    if(f.tabela === "mudas" && i < 4){
       const marca = bruto.slice(0,1), resto = bruto.slice(2);
       const cls = marca === "s" ? "sim" : marca === "m" ? "mod" : "nao";
-      const sim = marca === "s" ? "✅ sim" : marca === "m" ? "⚠️ moderado" : "⛔ evitar";
-      val.appendChild(el("span", cls, sim));
-      if(resto) val.appendChild(document.createTextNode(" · " + resto));
+      const txt = marca === "s" ? "\u2705 sim" : marca === "m" ? "\u26A0\uFE0F moderado" : "\u26D4 evitar";
+      val.appendChild(el("span", cls, txt));
+      if(resto) val.appendChild(document.createTextNode(" \u00B7 " + resto));
+    } else {
+      val.textContent = bruto;
     }
     l.appendChild(val);
     c.appendChild(l);
   });
   return c;
 }
+
+/* editor de ficha. Salvar substitui a de fábrica de vez. */
+function formFicha(f){
+  const mudas = f.tabela !== "orquideas";
+  const cols = mudas ? GUIA_COLS : GUIA_ORQ_COLS;
+  const eb = errBox(), w = el("div"); w.appendChild(eb);
+  const fNome = input("text", f.nome || "", "nome da planta");
+  const fApel = input("text", (f.apelidos||[]).join(", "), "outros nomes, separados por vírgula");
+  w.appendChild(field("Nome", fNome));
+  w.appendChild(field("Também chamada de", fApel, "ajuda o app a achar na busca e na fala"));
+
+  const marcas = [{value:"s",label:"\u2705 sim"},{value:"m",label:"\u26A0\uFE0F moderado"},{value:"n",label:"\u26D4 evitar"}];
+  const campos = [];
+  cols.forEach((col, i) => {
+    const bruto = f.cols[i] || "";
+    if(mudas && i < 4){
+      const sel = selectEl(marcas, bruto.slice(0,1) || "m", null);
+      const det = input("text", bruto.slice(2), "detalhe, ex: 1:10 ou só orgânico");
+      w.appendChild(field(col, sel));
+      w.appendChild(field("— detalhe", det));
+      campos.push(() => sel.value + ":" + det.value.trim());
+    } else {
+      const ta = textarea(bruto, mudas ? "o que fazer quando a muda está fraca" : "escreva o cuidado");
+      w.appendChild(field(col, ta));
+      campos.push(() => ta.value.trim());
+    }
+  });
+  const fNota = mudas ? textarea(f.nota || "", "alerta curto, aparece destacado") : null;
+  if(mudas) w.appendChild(field("Alerta (opcional)", fNota));
+
+  const acoes = [btn("Cancelar","sec",closeSheet),
+    btn("Salvar","pri", async () => {
+      const nm = fNome.value.trim();
+      if(!nm) return showErr(eb,"Escreva o nome da planta.");
+      const obj = {id: f.id || idGuia(nm), nome: nm,
+        apelidos: fApel.value.split(",").map(x=>x.trim()).filter(Boolean),
+        cols: campos.map(fn => fn()), nota: mudas ? fNota.value.trim() : "",
+        tabela: mudas ? "mudas" : "orquideas", oculto: false,
+        criadoEm: new Date().toISOString()};
+      await salvarFicha(obj);
+      closeSheet(); screenGuia(); toast("Ficha salva");
+    })];
+
+  if(f.id && !f.oculta){
+    acoes.splice(1, 0, btn("Esconder","sec", async () => {
+      const obj = {id: f.id, nome: f.nome, apelidos: (f.apelidos||[]).slice(),
+                   cols: (f.cols||[]).slice(), nota: f.nota || "",
+                   tabela: f.tabela, oculto: true, criadoEm: new Date().toISOString()};
+      await salvarFicha(obj);
+      closeSheet(); screenGuia(); toast("Ficha escondida");
+    }));
+  }
+  if(f.oculta){
+    acoes.splice(1, 0, btn("Mostrar de novo","sec", async () => {
+      const sv = fichaSalva(f.id); if(!sv) return;
+      sv.oculto = false; await salvarFicha(sv);
+      closeSheet(); screenGuia(); toast("Ficha de volta");
+    }));
+  }
+  openSheet(f.id ? "Editar ficha" : "Nova ficha", w, acoes);
+}
+const formFichaNova = tabela => formFicha({tabela: tabela, nome:"", apelidos:[], cols:[], nota:""});
+
 
 function screenGuia(){
   head("Guia de manejo","mudas e orquídeas"); tab="mais"; stack=null;
@@ -2581,7 +2680,7 @@ function screenGuia(){
   intro.innerHTML="Vale para planta em <b>fase de muda saudável</b>, em plantio orgânico com insumos caseiros, "+
     "seca até outubro ou novembro. <span class='sim'>✅ sim</span> · <span class='mod'>⚠️ moderado ou diluído</span> · <span class='nao'>⛔ evitar</span>"+
     "<br><br>As marcadas com <span class='pq'>pesquisa</span> não foram escritas por você — vieram de Embrapa, IPEF e universidades. "+
-    "<b>Confira antes de seguir</b> e corrija o que não bater com o seu terreno.";
+    "<b>Toque em editar</b> e corrija: a sua versão passa a valer no lugar dela, e a etiqueta sai.";
   v.appendChild(intro);
 
   const busca=input("search",guiaBusca,"procurar planta…");
@@ -2591,41 +2690,70 @@ function screenGuia(){
   const lista=el("div"); v.appendChild(lista);
   function desenhar(){
     lista.innerHTML="";
-    const q=normalizarFala(guiaBusca);
-    const minhas=[], outras=[];
-    GUIA_MUDAS.forEach(g=>{
-      if(q && !normalizarFala([g[0]].concat(g[1]).join(" ")).includes(q) &&
-         !normalizarFala(g[6]).includes(q)) return;
-      (S.mudas.some(m=>guiaDaEspecie(m.especie)===g) ? minhas : outras).push(g);
+    const q = normalizarFala(guiaBusca);
+
+    /* --- plantas: fichas de fábrica com o que o usuário corrigiu por cima --- */
+    const minhas = [], outras = [];
+    GUIA_MUDAS.forEach(g => {
+      const f = fichaEfetiva(g, "mudas");
+      if(!f || !combinaBusca(f, q)) return;
+      const plantada = S.mudas.some(m => { const gg = guiaDaEspecie(m.especie); return gg && idGuia(gg[0]) === f.id; });
+      (plantada ? minhas : outras).push(f);
     });
-    if(!minhas.length && !outras.length){
-      lista.appendChild(el("div","empty","Nada com esse nome no guia."));
-      return;
-    }
+    const propriasMudas = fichasProprias("mudas").filter(f => combinaBusca(f, q));
+
     if(minhas.length){
       lista.appendChild(el("div","sec-t","O que você tem plantado"));
-      minhas.forEach(g=>lista.appendChild(cartaoGuia(g)));
+      minhas.forEach(f => lista.appendChild(cartaoFicha(f)));
+    }
+    if(propriasMudas.length){
+      lista.appendChild(el("div","sec-t","Fichas que você escreveu"));
+      propriasMudas.forEach(f => lista.appendChild(cartaoFicha(f)));
     }
     if(outras.length){
-      lista.appendChild(el("div","sec-t", minhas.length ? "Outras do guia" : "Plantas"));
-      outras.forEach(g=>lista.appendChild(cartaoGuia(g)));
+      lista.appendChild(el("div","sec-t", (minhas.length || propriasMudas.length) ? "Outras do guia" : "Plantas"));
+      outras.forEach(f => lista.appendChild(cartaoFicha(f)));
     }
-    const orq = GUIA_ORQUIDEAS.filter(g=>{
-      if(!q) return true;
-      return normalizarFala([g[0]].concat(g[1]).join(" ")).includes(q);
+    const nvM = el("button","linkbtn","+ Nova ficha de planta");
+    nvM.onclick = () => formFichaNova("mudas");
+    lista.appendChild(nvM);
+
+    /* --- orquídeas --- */
+    const orq = [];
+    GUIA_ORQUIDEAS.forEach(g => {
+      const f = fichaEfetiva(g, "orquideas");
+      if(f && combinaBusca(f, q)) orq.push(f);
     });
-    if(orq.length){
+    fichasProprias("orquideas").forEach(f => { if(combinaBusca(f, q)) orq.push(f); });
+    if(orq.length || !q){
       lista.appendChild(el("div","sec-t","Orquídeas — cuidados básicos"));
       const av = el("div","empty");
-      av.style.cssText="text-align:left;font-size:13px;margin-bottom:10px";
-      av.innerHTML="Rascunho de partida, <b>não escrito por um orquidófilo</b>. Corrija o que não bater e acrescente o que faltar.";
+      av.style.cssText = "text-align:left;font-size:13px;margin-bottom:10px";
+      av.innerHTML = "Rascunho de partida, <b>não escrito por um orquidófilo</b>. Toque em editar e corrija o que não bater.";
       lista.appendChild(av);
-      orq.forEach(g=>lista.appendChild(cartaoOrquidea(g)));
+      orq.forEach(f => lista.appendChild(cartaoFicha(f)));
+      const nvO = el("button","linkbtn","+ Nova orquídea");
+      nvO.onclick = () => formFichaNova("orquideas");
+      lista.appendChild(nvO);
     }
-    GUIA_LISTAS.forEach(([titulo, itens])=>{
+
+    if(!minhas.length && !outras.length && !propriasMudas.length && !orq.length){
+      lista.appendChild(el("div","empty","Nada com esse nome no guia."));
+    }
+
+    /* --- escondidas --- */
+    const qtdOcultas = S.guia.filter(x => x.oculto).length;
+    if(qtdOcultas || guiaVerOcultas){
+      const tg = el("button","linkbtn", guiaVerOcultas ? "esconder de novo as ocultas"
+                    : "ver " + qtdOcultas + (qtdOcultas === 1 ? " ficha escondida" : " fichas escondidas"));
+      tg.onclick = () => { guiaVerOcultas = !guiaVerOcultas; desenhar(); };
+      lista.appendChild(tg);
+    }
+
+    GUIA_LISTAS.forEach(([titulo, itens]) => {
       lista.appendChild(el("div","gsec",titulo));
-      const ul=el("ul");
-      itens.forEach(t=>{ const li=el("li"); li.innerHTML=t; ul.appendChild(li); });
+      const ul = el("ul");
+      itens.forEach(t => { const li = el("li"); li.innerHTML = t; ul.appendChild(li); });
       lista.appendChild(ul);
     });
   }
@@ -3829,7 +3957,7 @@ function screenMuda(id){
   if(g){
     const sg=el("div","sec");
     sg.appendChild(el("div","sec-t","No guia de manejo"));
-    sg.appendChild(cartaoGuia(g));
+    sg.appendChild(cartaoFicha(fichaEfetiva(g,"mudas") || fichaDeFabrica(g,"mudas")));
     const gb=btn("Abrir o guia inteiro","sec",()=>{ guiaBusca=""; screenGuia(); });
     gb.style.flex="1"; sg.appendChild(gb);
     v.appendChild(sg);
@@ -4716,7 +4844,7 @@ function screenSincronia(){
 function semBlobs(r){ const o=Object.assign({},r); delete o.foto; return o; }
 function exportar(){
   const data={versao:4,exportadoEm:new Date().toISOString(),areas:S.areas,insumos:S.insumos,
-              plantios:S.plantios,mudas:S.mudas,acoes:S.acoes,males:S.males,problemas:S.problemas,planos:S.planos,lembretes:S.lembretes,regras:S.regras,
+              plantios:S.plantios,mudas:S.mudas,acoes:S.acoes,males:S.males,problemas:S.problemas,planos:S.planos,lembretes:S.lembretes,regras:S.regras,guia:S.guia,
               registros:S.registros.map(semBlobs),config:S.config};
   const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
   const url=URL.createObjectURL(blob); const a=document.createElement("a");
@@ -4732,7 +4860,7 @@ function importar(){
     try{
       const d=JSON.parse(await file.text());
       if(!d||!Array.isArray(d.registros)) throw new Error("formato");
-      for(const s of ["areas","insumos","plantios","mudas","acoes","males","problemas","planos","lembretes","regras","registros"]){
+      for(const s of ["areas","insumos","plantios","mudas","acoes","males","problemas","planos","lembretes","regras","guia","registros"]){
         await clearStore(s); for(const o of (d[s]||[])) await put(s,o);
       }
       if(d.config) await put("config",Object.assign({id:"app"},d.config));
