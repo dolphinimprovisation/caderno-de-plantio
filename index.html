@@ -909,7 +909,7 @@ function tocar(g, botao){
 
 
 /* ============ vocabulário do Rob ============ */
-const APP_VERSAO = "9 · guia editável";
+const APP_VERSAO = "11 · esconder sai da lista";
 const VOCAB_VERSAO = 8;
 const VOCAB_AREAS = [];    /* copia limpa: o usuario cria as dele */
 const VOCAB_INSUMOS = [];  /* copia limpa: o usuario cria os dele */
@@ -2656,6 +2656,8 @@ function formFicha(f){
                    cols: (f.cols||[]).slice(), nota: f.nota || "",
                    tabela: f.tabela, oculto: true, criadoEm: new Date().toISOString()};
       await salvarFicha(obj);
+      /* sai do modo espião, senão a ficha escondida continua na tela com etiqueta */
+      guiaVerOcultas = false;
       closeSheet(); screenGuia(); toast("Ficha escondida");
     }));
   }
@@ -2692,6 +2694,14 @@ function screenGuia(){
     lista.innerHTML="";
     const q = normalizarFala(guiaBusca);
 
+    /* adicionar fica no topo: no fim da lista, depois de 38 plantas, ninguém acha */
+    const barra = el("div","two"); barra.style.marginBottom = "10px";
+    const nvM = btn("+ Nova planta","sec",()=>formFichaNova("mudas"));
+    const nvO = btn("+ Nova orquídea","sec",()=>formFichaNova("orquideas"));
+    nvM.style.flex = "1"; nvO.style.flex = "1";
+    barra.appendChild(nvM); barra.appendChild(nvO);
+    lista.appendChild(barra);
+
     /* --- plantas: fichas de fábrica com o que o usuário corrigiu por cima --- */
     const minhas = [], outras = [];
     GUIA_MUDAS.forEach(g => {
@@ -2714,10 +2724,6 @@ function screenGuia(){
       lista.appendChild(el("div","sec-t", (minhas.length || propriasMudas.length) ? "Outras do guia" : "Plantas"));
       outras.forEach(f => lista.appendChild(cartaoFicha(f)));
     }
-    const nvM = el("button","linkbtn","+ Nova ficha de planta");
-    nvM.onclick = () => formFichaNova("mudas");
-    lista.appendChild(nvM);
-
     /* --- orquídeas --- */
     const orq = [];
     GUIA_ORQUIDEAS.forEach(g => {
@@ -2732,9 +2738,6 @@ function screenGuia(){
       av.innerHTML = "Rascunho de partida, <b>não escrito por um orquidófilo</b>. Toque em editar e corrija o que não bater.";
       lista.appendChild(av);
       orq.forEach(f => lista.appendChild(cartaoFicha(f)));
-      const nvO = el("button","linkbtn","+ Nova orquídea");
-      nvO.onclick = () => formFichaNova("orquideas");
-      lista.appendChild(nvO);
     }
 
     if(!minhas.length && !outras.length && !propriasMudas.length && !orq.length){
